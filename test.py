@@ -26,6 +26,10 @@ def init_connection():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, SCOPE)
         return gspread.authorize(creds)
     except Exception as e:
+        # 로컬 테스트용 폴백
+        if os.path.exists("google_key.json"):
+            creds = ServiceAccountCredentials.from_json_keyfile_name("google_key.json", SCOPE)
+            return gspread.authorize(creds)
         st.error(f"비밀 금고 열쇠 오류: {e}")
         return None
 
@@ -414,7 +418,9 @@ def main_scheduler_app():
             model = cp_model.CpModel()
             num_partners = len(partner_names)
             leader_titles = ['점장', '부점장', '수퍼바이저']
-            leader_indices = [i for i, row in edited_df.iterrows() if row['직급'] in leader_titles]
+            
+            # ✅ KeyError 완벽 해결: 파트너 삭제/추가 시에도 번호가 꼬이지 않도록 수정!
+            leader_indices = [i for i, role in enumerate(edited_df['직급']) if role in leader_titles]
             
             start_vars = {}
             work_vars = {}
