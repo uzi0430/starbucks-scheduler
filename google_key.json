@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "starbucks-scheduler-504802",
+  "private_key_id": "31556a036dc15ac0ea2f5dd93968f0aba56fcddf",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCzwjQM9C4M0Aa+\np89OkAGT25O5Mih5B/L3qZ6eMYJzI3eo2okPrAY3tB0UjfvBqUjiKcXkt2WnAtIS\nJ179EEBnjbfek87hxsgldHrzAUxnxDqRJxlrlQMUnthoKvCCfOElt2mZNWTYh7Vb\n2ErOc5OF3ria7H4bhJytw2L0cXEIShp4uA2zSA3UAWlcV6Ma79Dw3zt0QlYeXpyZ\nak8DdVMNBcKhah3X0TDLZGxrTrMqWeEfq+IaBNNjmdlNyyt9hRjJflSOrgzkv9ch\nJSQS4ZRfQh+EWMwJKi5rp+v6vgvVHS/haSXCpVE694xoh4CZATd1y6ss0mvfuu+D\nxDWTV+YNAgMBAAECggEAJDGtcNFGp2pIfWGFBozM4IRVB3RPvWTqGU9kInaWDVBe\nItfTwp3Qx60CsPWQtDL9e5pNIAsEUv8opKKcR+iaiy84Dz8kKAYyHQaJzf2cMIWM\nhFcC0YxYqTF9oeXJdQCnhcRbJQ/g7Q9QJzzS/SQ81zbb5UfKcYh/UqZ1eYIQ8AnD\nQ7OUdF5a9+Gh3tIGFbzVJh0t/rCF2tfDPI4oy1QK2WQPMz1cxSmxLkb8V7dXDUyd\noftohJduHK3KO088eVyXcciofgfpIGCBC+nGASFUg57MeO1NWp31a/vAsTX7cpgt\nBMsb92N/Yq9rSGibwUn9N+z5goNBQ1dQobP6Q8MpIQKBgQDc4HOqWREgcBco0QDs\nYAJlYOgB68KvAUZFwnWyb4jh1ootnFqGLJusn14Lby4Z/Iw2tuIIgFM/QN2ojQnR\nmiKegqIQ6lTH7U6ty4X+5kvvxF10RwazEtgYWKDNoEmgbdVL+uN0wQLHW2lSTzL8\nTXbr/Ai1OMCVEMAqmldwg5C8oQKBgQDQV+U/HmNY4dM9Fk3nMQ6HXmRRz2pp3+3J\nyNHUfAuOg2RGn2cYyAiaYYSH9Le/7FlHyV3dHJ8mPcB0kvY2DKDRrVNJ6NBYPWu7\nG+tXTl0MwsEqLiY2tEk6sroMRKo7iqyPee/ZW9suidqsi0KFGig7Sa8lDC8PZGN6\nNMmiXVYl7QKBgGpJtD9IJv62Ed75XHli5iRE0sCB5Ch0840EO8EG/Ra4N7wlHkas\n1qjl88qK0ON+bTazIOg4YFby7vd6DzyG8JvYfwamzO98Wb02UB/OUMJrexFGUIoB\nym1E0PTCakvCLr8mVyhK7PxkF7WdGQrieBStLr+ONNZGvkKCDQu+s/qhAoGAZhdL\n/Jv1bq5qBnsRfYJqbibw3a3XpT3XlZNUTtziBNmZn4moyVnr7Upv2Pcvu1ojfavM\n1Pabfe+wiO8iuuWBQH3AXG06+qJOUgeiUMvTiNc+NF8c1p2NbLf7tttG15piaIQF\n5eq/ApUGlJpA5Fwm7rZynqLTxKUaod2QGIHIHxkCgYAs04kFHGyVROtNA6Jnut9e\nihBNFoiLP8h4l/PQd5ZK+HSU6fYsmQtzlzr65b7fH7yE5EepZwSOrKnv79WIUEzx\nM1oEIj/e1u/bQr0Tg7lFmAzonsbIPkafVn0QlsHMyOEBUg2huF74x8aEo4yAlV3w\nG9dujqgFOBejW6JpKSbprg==\n-----END PRIVATE KEY-----\n",
+  "client_email": "db-bot@starbucks-scheduler-504802.iam.gserviceaccount.com",
+  "client_id": "116247803256009408078",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/db-bot%40starbucks-scheduler-504802.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
