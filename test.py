@@ -4,6 +4,7 @@ import datetime
 import os
 import calendar
 import io
+import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from ortools.sat.python import cp_model
@@ -11,10 +12,9 @@ from ortools.sat.python import cp_model
 st.set_page_config(layout="wide", page_title="스타벅스 통합 스마트 스케줄러")
 
 # ==========================================
-# ☁️ 구글 스프레드시트 (클라우드 DB) 연동 세팅
+# ☁️ 구글 스프레드시트 (클라우드 DB) 연동 세팅 (비밀 금고 적용 완료)
 # ==========================================
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-KEY_FILE = "google_key.json"
 SHEET_NAME = "인하대점_스케줄DB"
 
 # 👑 최고 관리자(Master) 전용 접속 코드
@@ -22,10 +22,17 @@ MASTER_ID = "MASTER777"
 
 @st.cache_resource
 def init_connection():
-    if os.path.exists(KEY_FILE):
-        creds = ServiceAccountCredentials.from_json_keyfile_name(KEY_FILE, SCOPE)
+    try:
+        # 스트림릿 시크릿(비밀 금고)에서 열쇠를 가져옵니다.
+        key_dict = json.loads(st.secrets["GOOGLE_KEY"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, SCOPE)
         return gspread.authorize(creds)
-    return None
+    except Exception as e:
+        # 로컬(내 컴퓨터)에서 테스트할 때 혹시 몰라 기존 파일 방식도 호환되게 처리
+        if os.path.exists("google_key.json"):
+            creds = ServiceAccountCredentials.from_json_keyfile_name("google_key.json", SCOPE)
+            return gspread.authorize(creds)
+        return None
 
 client = init_connection()
 
@@ -211,7 +218,7 @@ def main_scheduler_app():
             st.rerun()
                 
     if not client:
-        st.error("🚨 구글 DB 연결 실패! google_key.json 파일을 확인해주세요.")
+        st.error("🚨 구글 DB 연결 실패! 스트림릿 Secrets(비밀 금고)에 GOOGLE_KEY가 잘 설정되었는지 확인해주세요.")
         st.stop()
         
     if 'store_settings' not in st.session_state:
@@ -227,7 +234,7 @@ def main_scheduler_app():
     def_req_open = parse_int(s_dict.get("req_open"), 2)
     def_req_close = parse_int(s_dict.get("req_close"), 2)
     def_min_floor = parse_int(s_dict.get("min_floor"), 2)
-    def_peak_staff = parse_int(s_dict.get("peak_staff"), 4) # 이름 변경
+    def_peak_staff = parse_int(s_dict.get("peak_staff"), 4)
     def_first_mid = str(s_dict.get("first_mid_start_str", "08:30"))
     def_last_mid = str(s_dict.get("last_mid_end_str", "21:00"))
 
@@ -268,7 +275,6 @@ def main_scheduler_app():
     default_ms_idx = opts_mid_start.index(def_first_mid) if def_first_mid in opts_mid_start else (opts_mid_start.index("08:30") if "08:30" in opts_mid_start else 0)
     with col8: first_mid_start_str = st.selectbox("🌅 첫 미들 출근", opts_mid_start, index=default_ms_idx)
     
-    # 💡 [업데이트 1] 피크 최소 인원 -> 피크 고정 인원
     with col9: peak_staff = st.number_input("🔥 피크 고정 인원 (정확히 맞춤)", 1, 10, def_peak_staff)
         
     opts_mid_end = [(dt_open + datetime.timedelta(minutes=30*i)).strftime("%H:%M") for i in range(peak_slots[-1] if peak_slots else 2, num_slots)]
@@ -339,7 +345,6 @@ def main_scheduler_app():
     kpi_col1.metric("💰 점장님 목표 WH", f"{target_wh} h")
     kpi_col2.metric("👥 필수 보장 합계 WH", f"{total_period_min} h")
     
-    # 💡 [업데이트 2] 예산 초과 시 '직급별 WH 정밀 진단' 메시지 출력
     if wh_diff < 0:
         kpi_col3.metric("🚨 예산 초과", f"{wh_diff} h", "-")
         
@@ -354,8 +359,8 @@ def main_scheduler_app():
         role_breakdown = " · ".join([f"**{r}** {h}h" for r, h in role_wh.items() if h > 0])
         
         st.warning(f"⚠️ **[스케줄 조정 필요] 목표 WH 예산을 초과했습니다! 총 {excess_h}시간을 줄여주세요.**\n\n"
-                   f"📊 **현재 직급별 필수 할당 워킹(WH) 현황:** {role_breakdown}\n\n"
-                   f"💡 **해결 가이드:** 위 현황을 참고하여, 인력 여유가 있는 직급의 파트너에게 연차나 휴무를 부여하거나 주간최소시간을 줄여 스케줄러 내의 무게를 덜어내야 합니다.")
+                    f"📊 **현재 직급별 필수 할당 워킹(WH) 현황:** {role_breakdown}\n\n"
+                    f"💡 **해결 가이드:** 위 현황을 참고하여, 인력 여유가 있는 직급의 파트너에게 연차나 휴무를 부여하거나 주간최소시간을 줄여 스케줄러 내의 무게를 덜어내야 합니다.")
     else:
         kpi_col3.metric("✅ 예산 여유", f"+{wh_diff} h", "+")
 
@@ -484,7 +489,6 @@ def main_scheduler_app():
                         if t > 0 and (p, d, t, L) in start_vars: ends_at_last_mid.append(start_vars[(p, d, t, L)])
                 if ends_at_last_mid: model.Add(sum(ends_at_last_mid) >= 1)
                     
-                # 💡 [업데이트 1] 피크 고정 인원 (Exact Constraint)
                 for t in peak_slots:
                     model.Add(sum(work_vars[(p, d, t)] for p in range(num_partners)) == peak_staff)
 
