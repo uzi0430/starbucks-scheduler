@@ -431,7 +431,7 @@ def main_scheduler_app():
 
     st.divider() 
     if st.button("✨ 스마트 스케줄 생성하기", use_container_width=True, type="primary"):
-        with st.spinner("최적의 스케줄과 법정 휴게시간을 계산 중입니다... (휴게 겹침 방지 적용, 최대 25초 소요)"):
+        with st.spinner("최적의 스케줄과 겹치지 않는 휴게시간을 계산 중입니다... (최대 30초 소요)"):
             model = cp_model.CpModel()
             num_partners = len(partner_names)
             leader_titles = ['점장', '부점장', '수퍼바이저']
@@ -442,7 +442,7 @@ def main_scheduler_app():
             ext_vars = [] 
             break_starts_dict = {}
             actual_floor = {}
-            is_on_break = {} # 🌟 추가: 각 타임별 개인의 휴게 여부 추적
+            is_on_break = {}
 
             for p in range(num_partners):
                 p_role = edited_df.iloc[p]['직급']
@@ -476,7 +476,6 @@ def main_scheduler_app():
                                     active_shifts.append(start_vars[(p, d, start_t, L)])
                         model.Add(work_vars[(p, d, t)] == sum(active_shifts))
 
-                        # 🌟 해당 시간(t)에 본인이 휴식 중인지 여부 저장
                         b_var_expr = sum(break_starts[t - k] for k in range(req_break_slots) if (t - k) in break_starts)
                         is_on_break[(p, d, t)] = b_var_expr
                         
@@ -486,7 +485,7 @@ def main_scheduler_app():
                         if t in peak_slots_all:
                             model.Add(b_var_expr == 0)
 
-                    # 휴게시간 '정중앙 샌드위치' 룰 
+                    # 휴게시간 정중앙 샌드위치 룰
                     break_buffer = 2 
                     for L in range(bs, bs + 5):
                         for shift_s in range(num_slots - L + 1):
@@ -501,7 +500,6 @@ def main_scheduler_app():
                                     if t not in valid_range:
                                         model.AddImplication(s_var, break_starts[t].Not())
 
-            # 일일 직급별 균등 분배 밸런스 패치
             daily_leader_counts = []
             daily_barista_counts = []
             
@@ -537,6 +535,9 @@ def main_scheduler_app():
             
             daily_balance_penalty = (max_dl - min_dl) * 2500 + (max_db - min_db) * 2500
 
+            # 🌟 [신규] 휴게 인원 제외, 남은 플로어 인원 최대화 변수 (휴식 고점 매수 룰)
+            break_floor_vals = []
+
             for d in range(num_days):
                 open_sum = [start_vars[(p, d, 0, L)] for p in range(num_partners) for L in range(int(get_role_times(edited_df.iloc[p]['직급'])[2] * 2), int(get_role_times(edited_df.iloc[p]['직급'])[2] * 2) + 5) if (p, d, 0, L) in start_vars]
                 model.Add(sum(open_sum) == req_open)
@@ -548,8 +549,19 @@ def main_scheduler_app():
                     model.Add(sum(actual_floor[(p, d, t)] for p in range(num_partners)) >= min_floor)
                     model.Add(sum(actual_floor[(p, d, t)] for p in leader_indices) >= 1)
                     
-                    # 🌟 [신규 룰] 파트너 간 휴게시간 절대 겹침 금지! (어느 시간대든 휴식자는 1명 이하)
+                    # 1. 겹침 완벽 차단: 특정 시간에 휴식하는 사람은 무조건 1명 이하
+                    b_active = model.NewBoolVar(f'b_active_{d}_{t}')
+                    model.Add(b_active == sum(is_on_break[(p, d, t)] for p in range(num_partners)))
                     model.Add(sum(is_on_break[(p, d, t)] for p in range(num_partners)) <= 1)
+
+                    # 2. 휴식 타이밍 최적화: 휴식 시간에 남아있는 플로어 인원을 계산
+                    f_staff_var = model.NewIntVar(0, num_partners, f'f_staff_{d}_{t}')
+                    model.Add(f_staff_var == sum(actual_floor[(p, d, t)] for p in range(num_partners)))
+                    
+                    bf_val = model.NewIntVar(0, num_partners, f'bf_val_{d}_{t}')
+                    model.Add(bf_val == f_staff_var).OnlyEnforceIf(b_active)
+                    model.Add(bf_val == 0).OnlyEnforceIf(b_active.Not())
+                    break_floor_vals.append(bf_val)
 
             for d in range(num_days):
                 for t in range(1, first_mid_start_idx):
@@ -711,21 +723,23 @@ def main_scheduler_app():
 
             total_used_wh = sum(total_work_hours_vars)
             
+            # 🌟 최종 최적화: 휴게 인원 제외 플로어 인원 최대화 (sum(break_floor_vals))
             model.Minimize(
                 sum(undertimes) * 100000 + sum(overlap_vars) * 500 + total_used_wh * 10 
                 + sum(ext_vars) * 20 + sum(stagger_vars) * 150 
                 + sum(mao_vars) * 50000 + leader_fairness_penalty + daily_balance_penalty
+                - sum(break_floor_vals) * 100
             )
                     
             solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = 25.0
+            solver.parameters.max_time_in_seconds = 30.0 # 복잡한 연산을 위해 시간 연장
             status = solver.Solve(model)
             
             if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
                 used_wh_final = solver.Value(total_used_wh) / 10.0
                 saved_wh = round(target_wh - used_wh_final, 1)
                 
-                st.success(f"🎉 스케줄 생성 완료! (휴게시간 겹침 100% 차단 성공!)")
+                st.success(f"🎉 스케줄 생성 완료! (휴게 겹침 방지 & 여유 시간대 휴식 배정 룰 완벽 적용!)")
                 
                 mao_warnings = []
                 for track in mao_tracking:
@@ -861,7 +875,7 @@ def main_scheduler_app():
                 
                 st.download_button(label="📥 엑셀 파일로 다운로드", data=output, file_name=f"스케줄_{start_date.strftime('%m%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, type="primary")
             else:
-                st.error("🚨 스케줄 계산에 실패했습니다. (원인: 피크 타임이 너무 길거나, 출근 인원 대비 비-피크시간이 너무 짧아 모든 파트너가 서로 안 겹치게 휴식할 공간이 부족합니다.) 피크 고정 인원을 줄이거나 피크 시간을 조금 짧게 수정해주세요!")
+                st.error("🚨 스케줄 계산에 실패했습니다. (원인: 파트너들의 휴게시간이 절대 겹치지 않게 하다 보니 모든 사람을 휴식 보낼 빈 공간이 모자랍니다.) 피크 타임 시간을 조금 줄이거나, 피크 1개 정도는 체크 해제해 보세요!")
 
 # ==========================================
 # 🔄 앱 라우팅
