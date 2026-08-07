@@ -12,26 +12,21 @@ from ortools.sat.python import cp_model
 st.set_page_config(layout="wide", page_title="스타벅스 통합 스마트 스케줄러")
 
 # ==========================================
-# ☁️ 구글 스프레드시트 (클라우드 DB) 연동 세팅 (비밀 금고 적용 완료)
+# ☁️ 구글 스프레드시트 (비밀 금고 연동)
 # ==========================================
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 SHEET_NAME = "인하대점_스케줄DB"
-
-# 👑 최고 관리자(Master) 전용 접속 코드
 MASTER_ID = "MASTER777" 
 
 @st.cache_resource
 def init_connection():
     try:
-        # 스트림릿 시크릿(비밀 금고)에서 열쇠를 가져옵니다.
+        # 스트림릿 비밀 금고에서 안전하게 열쇠를 꺼냅니다!
         key_dict = json.loads(st.secrets["GOOGLE_KEY"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, SCOPE)
         return gspread.authorize(creds)
     except Exception as e:
-        # 로컬(내 컴퓨터)에서 테스트할 때 혹시 몰라 기존 파일 방식도 호환되게 처리
-        if os.path.exists("google_key.json"):
-            creds = ServiceAccountCredentials.from_json_keyfile_name("google_key.json", SCOPE)
-            return gspread.authorize(creds)
+        st.error(f"비밀 금고 열쇠 오류: {e}")
         return None
 
 client = init_connection()
@@ -347,7 +342,6 @@ def main_scheduler_app():
     
     if wh_diff < 0:
         kpi_col3.metric("🚨 예산 초과", f"{wh_diff} h", "-")
-        
         role_wh = {}
         for idx, row in edited_df.iterrows():
             role = row['직급']
