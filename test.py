@@ -21,12 +21,10 @@ MASTER_ID = "MASTER777"
 @st.cache_resource
 def init_connection():
     try:
-        # 스트림릿 비밀 금고에서 안전하게 열쇠를 꺼냅니다!
         key_dict = json.loads(st.secrets["GOOGLE_KEY"])
         creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, SCOPE)
         return gspread.authorize(creds)
     except Exception as e:
-        # 로컬 테스트용 폴백
         if os.path.exists("google_key.json"):
             creds = ServiceAccountCredentials.from_json_keyfile_name("google_key.json", SCOPE)
             return gspread.authorize(creds)
@@ -35,7 +33,7 @@ def init_connection():
 
 client = init_connection()
 
-# 🌐 통합 DB 읽기 함수
+# 🌐 통합 DB 읽기/쓰기 함수
 def load_all_data(worksheet_name, default_cols):
     if client:
         try:
@@ -49,7 +47,6 @@ def load_all_data(worksheet_name, default_cols):
         except: pass
     return pd.DataFrame(columns=default_cols)
 
-# 🌐 통합 DB 쓰기 함수
 def save_all_data(worksheet_name, df):
     if client:
         try:
@@ -59,25 +56,22 @@ def save_all_data(worksheet_name, df):
         except Exception as e:
             st.error(f"🚨 DB 저장 오류: {e}")
 
-# 🏢 특정 매장 데이터만 읽기
 def load_store_data(worksheet_name, store_name, default_cols):
     df_all = load_all_data(worksheet_name, default_cols)
     if not df_all.empty and '매장명' in df_all.columns:
         return df_all[df_all['매장명'] == str(store_name)].copy()
     return pd.DataFrame(columns=default_cols)
 
-# 🏢 특정 매장 데이터만 저장
 def save_store_data(worksheet_name, store_name, df_store):
     df_all = load_all_data(worksheet_name, list(df_store.columns) + (['매장명'] if '매장명' not in df_store.columns else []))
     if not df_all.empty and '매장명' in df_all.columns:
         df_all = df_all[df_all['매장명'] != str(store_name)]
-    
     df_store['매장명'] = str(store_name)
     df_final = pd.concat([df_all, df_store], ignore_index=True)
     save_all_data(worksheet_name, df_final)
 
 # ==========================================
-# 🔒 1. 지능형 로그인 화면 (사번 라우팅)
+# 🔒 1. 지능형 로그인 화면 / 2. 마스터 관제탑
 # ==========================================
 def login_page():
     st.title("☕ 스타벅스 통합 스마트 스케줄러")
@@ -123,7 +117,6 @@ def login_page():
         reg_id = st.session_state['show_register']
         reg_name = st.text_input("이름 (예: 홍길동)")
         reg_store = st.text_input("소속 매장명 (예: 인하대점)")
-        
         if st.button("승인 요청하기"):
             if reg_name and reg_store:
                 df_auth = load_all_data("auth_data", ["매장명", "사번", "이름", "상태"])
@@ -135,9 +128,6 @@ def login_page():
             else:
                 st.error("이름과 매장명을 모두 입력해주세요.")
 
-# ==========================================
-# 👑 2. 최고 관리자 (Master) 관제탑
-# ==========================================
 def master_dashboard():
     col1, col2 = st.columns([8, 2])
     col1.title("👑 [최고 관리자] 전국 매장 관제탑")
@@ -145,22 +135,17 @@ def master_dashboard():
         if st.button("로그아웃", use_container_width=True):
             st.session_state['master_mode'] = False
             st.rerun()
-            
     st.write("전국 스타벅스 매장의 모든 사용자를 통제하고 승인할 수 있는 마스터 권한입니다.")
     st.divider()
-    
     df = load_all_data("auth_data", ["매장명", "사번", "이름", "상태"])
-    
     if df.empty:
         st.info("현재 등록되거나 대기 중인 사용자가 없습니다.")
         return
-        
     st.subheader("👥 전국 사용자 관리 내역")
     for index, row in df.iterrows():
         col_m, col_n, col_s, col_b1, col_b2 = st.columns([2, 2, 2, 2, 2])
         col_m.write(f"🏢 **{row['매장명']}**")
         col_n.write(f"👤 {row['이름']} ({row['사번']})")
-        
         if row['상태'] == 'Pending':
             col_s.warning("승인 대기")
             if col_b1.button("✅ 접속 허락", key=f"app_{row['사번']}_{index}", type="primary"):
@@ -191,6 +176,16 @@ def parse_int(val, default_val):
     try: return int(val)
     except: return default_val
 
+def parse_float(val, default_val):
+    try: return float(val)
+    except: return default_val
+
+def parse_bool(val, default_val):
+    if isinstance(val, bool): return val
+    if str(val).lower() in ['true', '1', 't', 'y', 'yes']: return True
+    if str(val).lower() in ['false', '0', 'f', 'n', 'no']: return False
+    return default_val
+
 def color_schedule(val):
     if val == '오픈': return 'background-color: #b8e994; color: black;'
     elif val == '오픈(관리자)': return 'background-color: #00704A; color: white; font-weight: bold;'
@@ -217,7 +212,7 @@ def main_scheduler_app():
             st.rerun()
                 
     if not client:
-        st.error("🚨 구글 DB 연결 실패! 스트림릿 Secrets(비밀 금고)에 GOOGLE_KEY가 잘 설정되었는지 확인해주세요.")
+        st.error("🚨 구글 DB 연결 실패! 스트림릿 Secrets(비밀 금고) 연동을 확인해주세요.")
         st.stop()
         
     if 'store_settings' not in st.session_state:
@@ -226,76 +221,126 @@ def main_scheduler_app():
     
     s_dict = st.session_state.store_settings
     
-    def_open = parse_time(s_dict.get("open_time"), datetime.time(7, 0))
-    def_close = parse_time(s_dict.get("close_time"), datetime.time(22, 0))
-    def_peak_start = parse_time(s_dict.get("peak_start"), datetime.time(12, 0))
-    def_peak_end = parse_time(s_dict.get("peak_end"), datetime.time(14, 30))
-    def_req_open = parse_int(s_dict.get("req_open"), 2)
-    def_req_close = parse_int(s_dict.get("req_close"), 2)
-    def_min_floor = parse_int(s_dict.get("min_floor"), 2)
-    def_peak_staff = parse_int(s_dict.get("peak_staff"), 4)
-    def_first_mid = str(s_dict.get("first_mid_start_str", "08:30"))
-    def_last_mid = str(s_dict.get("last_mid_end_str", "21:00"))
-
-    st.header("1. 매장 기본 설정")
+    st.header("1. 매장 기본 설정 & IPLH 예측")
     col_d1, col_d2 = st.columns(2)
     with col_d1:
         date_range = st.date_input("🗓️ 스케줄 기간", value=(datetime.date.today(), datetime.date.today() + datetime.timedelta(days=6)))
         if len(date_range) != 2: st.stop()
         start_date, end_date = date_range
         num_days = (end_date - start_date).days + 1
+        
+    # 🌟 [신규 기능 1] IPLH 기반 목표 WH 자동 계산기
+    st.subheader("💰 주간 예산 & IPLH 설정")
+    col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+    def_est_items = parse_int(s_dict.get("est_items"), 3000)
+    def_target_iplh = parse_float(s_dict.get("target_iplh"), 10.0)
+    
+    with col_i1: est_items = st.number_input("주간 예상 총 아이템 수", value=def_est_items, step=100)
+    with col_i2: target_iplh = st.number_input("목표 IPLH", value=def_target_iplh, step=0.5)
+    
+    recommended_wh = round(est_items / target_iplh, 1) if target_iplh > 0 else 0
+    with col_i3: st.metric("📊 권장 주간 총 WH", f"{recommended_wh} h")
+    
+    def_target_wh = parse_float(s_dict.get("target_wh"), recommended_wh)
+    with col_i4: target_wh = st.number_input("🎯 최종 목표 총 워킹(WH)", value=def_target_wh, step=5.0)
 
-    with col_d2:
-        target_wh = st.number_input("💰 설정 기간 내 목표 총 워킹(WH) 한도", value=num_days * 45, step=10)
+    st.divider()
+    st.subheader("⏰ 영업 시간 및 운영 인원")
+    def_open = parse_time(s_dict.get("open_time"), datetime.time(7, 0))
+    def_close = parse_time(s_dict.get("close_time"), datetime.time(22, 0))
+    def_req_open = parse_int(s_dict.get("req_open"), 2)
+    def_req_close = parse_int(s_dict.get("req_close"), 2)
+    def_min_floor = parse_int(s_dict.get("min_floor"), 2)
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     with col1: open_time = st.time_input("오픈 시간", def_open)
     with col2: close_time = st.time_input("마감 시간", def_close)
-    with col3: peak_start = st.time_input("🔥 피크 시작", def_peak_start)
-    with col4: peak_end = st.time_input("🔥 피크 종료", def_peak_end)
+    with col3: req_open = st.number_input("오픈 고정 인원", 1, 5, def_req_open)
+    with col4: req_close = st.number_input("마감 고정 인원", 1, 5, def_req_close)
+    with col5: min_floor = st.number_input("상시 최소 인원", 1, 5, def_min_floor)
 
     dt_open = datetime.datetime.combine(start_date, open_time)
     dt_close = datetime.datetime.combine(start_date, close_time)
-    dt_peak_start = datetime.datetime.combine(start_date, peak_start)
-    dt_peak_end = datetime.datetime.combine(start_date, peak_end)
-    
     total_minutes = int((dt_close - dt_open).total_seconds() / 60)
     num_slots = total_minutes // 30
     time_slots = [(dt_open + datetime.timedelta(minutes=30*i)).strftime("%H:%M") for i in range(num_slots)]
-    peak_slots = [i for i, t in enumerate(time_slots) if dt_peak_start <= dt_open + datetime.timedelta(minutes=30*i) < dt_peak_end]
 
-    col5, col6, col7 = st.columns(3)
-    with col5: req_open = st.number_input("오픈 고정 인원", 1, 5, def_req_open)
-    with col6: req_close = st.number_input("마감 고정 인원", 1, 5, def_req_close)
-    with col7: min_floor = st.number_input("상시 최소 인원", 1, 5, def_min_floor)
-
-    col8, col9, col10 = st.columns(3)
-    opts_mid_start = time_slots[1:peak_slots[0]+1] if peak_slots else time_slots[1:-4]
-    default_ms_idx = opts_mid_start.index(def_first_mid) if def_first_mid in opts_mid_start else (opts_mid_start.index("08:30") if "08:30" in opts_mid_start else 0)
-    with col8: first_mid_start_str = st.selectbox("🌅 첫 미들 출근", opts_mid_start, index=default_ms_idx)
+    # 🌟 [신규 기능 2] 다중 피크 타임 (최대 3개)
+    st.subheader("🔥 다중 피크 타임 설정 (최대 3개)")
+    peak_configs = []
+    col_p_use, col_p_set = st.columns([1, 4])
     
-    with col9: peak_staff = st.number_input("🔥 피크 고정 인원 (정확히 맞춤)", 1, 10, def_peak_staff)
+    for i in range(1, 4):
+        def_use = parse_bool(s_dict.get(f"peak{i}_active"), i==1)
+        use_peak = st.checkbox(f"피크 {i} 활성화", value=def_use, key=f"use_peak_{i}")
         
-    opts_mid_end = [(dt_open + datetime.timedelta(minutes=30*i)).strftime("%H:%M") for i in range(peak_slots[-1] if peak_slots else 2, num_slots)]
-    default_me_idx = opts_mid_end.index(def_last_mid) if def_last_mid in opts_mid_end else (opts_mid_end.index("21:00") if "21:00" in opts_mid_end else len(opts_mid_end)-2)
-    with col10: last_mid_end_str = st.selectbox("🌙 마감 전 마지막 미들 퇴근", opts_mid_end, index=default_me_idx)
+        if use_peak:
+            def_ps = parse_time(s_dict.get(f"peak{i}_start"), datetime.time(12, 0) if i==1 else (datetime.time(15, 0) if i==2 else datetime.time(18, 0)))
+            def_pe = parse_time(s_dict.get(f"peak{i}_end"), datetime.time(14, 30) if i==1 else (datetime.time(16, 0) if i==2 else datetime.time(20, 0)))
+            def_staff = parse_int(s_dict.get(f"peak{i}_staff"), 4)
+            
+            p_col1, p_col2, p_col3 = st.columns(3)
+            with p_col1: p_start = st.time_input(f"피크 {i} 시작", def_ps, key=f"p_start_{i}")
+            with p_col2: p_end = st.time_input(f"피크 {i} 종료", def_pe, key=f"p_end_{i}")
+            with p_col3: p_staff = st.number_input(f"피크 {i} 고정 인원", 1, 15, def_staff, key=f"p_staff_{i}")
+            
+            peak_configs.append({"start": p_start, "end": p_end, "staff": p_staff, "idx": i})
+
+    # 피크타임 슬롯 매핑 (겹칠 경우 최대 인원 반영)
+    peak_req = {}
+    peak_slots_all = set()
+    for pc in peak_configs:
+        dt_p_start = datetime.datetime.combine(start_date, pc["start"])
+        dt_p_end = datetime.datetime.combine(start_date, pc["end"])
+        for i in range(num_slots):
+            slot_dt = dt_open + datetime.timedelta(minutes=30*i)
+            if dt_p_start <= slot_dt < dt_p_end:
+                peak_req[i] = max(peak_req.get(i, 0), pc["staff"])
+                peak_slots_all.add(i)
+
+    # 미들 출퇴근 기준 시간 설정
+    st.subheader("🌅 미들 출/퇴근 기준")
+    col_m1, col_m2 = st.columns(2)
+    def_first_mid = str(s_dict.get("first_mid_start_str", "08:30"))
+    def_last_mid = str(s_dict.get("last_mid_end_str", "21:00"))
+    
+    first_peak_idx = min(peak_slots_all) if peak_slots_all else len(time_slots)//2
+    opts_mid_start = time_slots[1:first_peak_idx+1] if peak_slots_all and first_peak_idx > 0 else time_slots[1:len(time_slots)//2]
+    if not opts_mid_start: opts_mid_start = time_slots[1:2]
+    default_ms_idx = opts_mid_start.index(def_first_mid) if def_first_mid in opts_mid_start else 0
+    with col_m1: first_mid_start_str = st.selectbox("첫 미들 출근 (이 시간 이전엔 미들 출근 금지)", opts_mid_start, index=default_ms_idx)
+    
+    last_peak_idx = max(peak_slots_all) if peak_slots_all else len(time_slots)//2
+    opts_mid_end = [(dt_open + datetime.timedelta(minutes=30*i)).strftime("%H:%M") for i in range(last_peak_idx, num_slots)] if peak_slots_all else time_slots[len(time_slots)//2:-1]
+    if not opts_mid_end: opts_mid_end = time_slots[-2:-1]
+    default_me_idx = opts_mid_end.index(def_last_mid) if def_last_mid in opts_mid_end else len(opts_mid_end)-1
+    with col_m2: last_mid_end_str = st.selectbox("마지막 미들 퇴근 (이 시간 이후엔 미들 퇴근 금지)", opts_mid_end, index=default_me_idx)
 
     first_mid_start_idx = time_slots.index(first_mid_start_str)
-    last_mid_end_idx = opts_mid_end.index(last_mid_end_str) + (num_slots - len(opts_mid_end))
+    last_mid_end_idx = time_slots.index(last_mid_end_str)
     
     if st.button("💾 이 설정을 우리 매장 기본값으로 저장", type="secondary"):
-        new_settings = pd.DataFrame([
+        setting_list = [
             {"항목": "open_time", "값": open_time.strftime("%H:%M")},
             {"항목": "close_time", "값": close_time.strftime("%H:%M")},
-            {"항목": "peak_start", "값": peak_start.strftime("%H:%M")},
-            {"항목": "peak_end", "값": peak_end.strftime("%H:%M")},
             {"항목": "req_open", "값": req_open},
             {"항목": "req_close", "값": req_close},
             {"항목": "min_floor", "값": min_floor},
-            {"항목": "peak_staff", "값": peak_staff},
             {"항목": "first_mid_start_str", "값": first_mid_start_str},
-            {"항목": "last_mid_end_str", "값": last_mid_end_str}
-        ])
+            {"항목": "last_mid_end_str", "값": last_mid_end_str},
+            {"항목": "est_items", "값": est_items},
+            {"항목": "target_iplh", "값": target_iplh},
+            {"항목": "target_wh", "값": target_wh},
+        ]
+        for i in range(1, 4):
+            is_active = st.session_state.get(f"use_peak_{i}", False)
+            setting_list.append({"항목": f"peak{i}_active", "값": is_active})
+            if is_active:
+                setting_list.append({"항목": f"peak{i}_start", "값": st.session_state.get(f"p_start_{i}").strftime("%H:%M")})
+                setting_list.append({"항목": f"peak{i}_end", "값": st.session_state.get(f"p_end_{i}").strftime("%H:%M")})
+                setting_list.append({"항목": f"peak{i}_staff", "값": st.session_state.get(f"p_staff_{i}")})
+                
+        new_settings = pd.DataFrame(setting_list)
         save_store_data("settings", store_name, new_settings)
         st.session_state.store_settings = dict(zip(new_settings['항목'], new_settings['값']))
         st.success("✅ 매장 기본 설정 저장 완료!")
@@ -333,7 +378,7 @@ def main_scheduler_app():
         st.markdown(f"<div style='text-align: center; font-size: 15px; color: #a5b1c2; padding-top: 10px;'>👥 점장 <b>{sm_count}</b>명 | 부점장 <b>{asm_count}</b>명 | 수퍼바이저 <b>{ssv_count}</b>명 | 바리스타 <b>{bari_count}</b>명</div>", unsafe_allow_html=True)
 
     with col_total:
-        st.markdown(f"<div style='text-align: right; font-weight: bold; font-size: 18px; color: #ff4b4b; padding-top: 5px;'>합계: {total_weekly_min_val:,.0f} h</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align: right; font-weight: bold; font-size: 18px; color: #ff4b4b; padding-top: 5px;'>필수보장 합계: {total_weekly_min_val:,.0f} h</div>", unsafe_allow_html=True)
         
     partner_names = edited_df["이름"].tolist()
     total_period_min = round(total_weekly_min_val * (num_days / 7.0), 1)
@@ -341,24 +386,11 @@ def main_scheduler_app():
 
     st.write("")
     kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
-    kpi_col1.metric("💰 점장님 목표 WH", f"{target_wh} h")
+    kpi_col1.metric("💰 목표 총 워킹(WH) 예산", f"{target_wh} h")
     kpi_col2.metric("👥 필수 보장 합계 WH", f"{total_period_min} h")
     
     if wh_diff < 0:
-        kpi_col3.metric("🚨 예산 초과", f"{wh_diff} h", "-")
-        role_wh = {}
-        for idx, row in edited_df.iterrows():
-            role = row['직급']
-            w_min = pd.to_numeric(row['주간최소시간'], errors='coerce')
-            if pd.isna(w_min): w_min = 0
-            role_wh[role] = role_wh.get(role, 0) + round(w_min * (num_days / 7.0), 1)
-            
-        excess_h = abs(wh_diff)
-        role_breakdown = " · ".join([f"**{r}** {h}h" for r, h in role_wh.items() if h > 0])
-        
-        st.warning(f"⚠️ **[스케줄 조정 필요] 목표 WH 예산을 초과했습니다! 총 {excess_h}시간을 줄여주세요.**\n\n"
-                    f"📊 **현재 직급별 필수 할당 워킹(WH) 현황:** {role_breakdown}\n\n"
-                    f"💡 **해결 가이드:** 위 현황을 참고하여, 인력 여유가 있는 직급의 파트너에게 연차나 휴무를 부여하거나 주간최소시간을 줄여 스케줄러 내의 무게를 덜어내야 합니다.")
+        kpi_col3.metric("🚨 예산 초과 (스케줄 축소 필요)", f"{wh_diff} h", "-")
     else:
         kpi_col3.metric("✅ 예산 여유", f"+{wh_diff} h", "+")
 
@@ -367,7 +399,7 @@ def main_scheduler_app():
     st.header("3. 변수 설정 (휴무/격리)")
     col_r1, col_r2 = st.columns(2)
     with col_r1:
-        st.subheader("📌 휴무 신청")
+        st.subheader("📌 휴무 및 시프트 희망")
         if 'requests_data' not in st.session_state:
             st.session_state.requests_data = load_store_data("requests", store_name, ["매장명", "이름", "날짜", "신청내용"])
         
@@ -375,7 +407,7 @@ def main_scheduler_app():
             r_name = st.selectbox("파트너", partner_names, key="r_name")
             r_date = st.date_input("날짜", value=start_date, key="r_date")
             r_type = st.selectbox("신청 내용", ["휴무", "오픈 희망", "미들 희망", "마감 희망"])
-            if st.button("휴무 추가", key="btn_req"):
+            if st.button("추가하기", key="btn_req"):
                 new_req = pd.DataFrame([{"매장명": store_name, "이름": r_name, "날짜": str(r_date), "신청내용": r_type}])
                 st.session_state.requests_data = pd.concat([st.session_state.requests_data, new_req], ignore_index=True)
                 save_store_data("requests", store_name, st.session_state.requests_data.drop(columns=['매장명'], errors='ignore'))
@@ -390,7 +422,7 @@ def main_scheduler_app():
                 st.session_state.requests_data = edited_req
 
     with col_r2:
-        st.subheader("🚫 동반 근무 최소화")
+        st.subheader("🚫 동반 근무 최소화 (격리)")
         if 'conflicts_data' not in st.session_state:
             st.session_state.conflicts_data = load_store_data("conflicts", store_name, ["매장명", "파트너1", "파트너2"])
         
@@ -419,7 +451,7 @@ def main_scheduler_app():
             num_partners = len(partner_names)
             leader_titles = ['점장', '부점장', '수퍼바이저']
             
-            # ✅ KeyError 완벽 해결: 파트너 삭제/추가 시에도 번호가 꼬이지 않도록 수정!
+            # ✅ 파트너 변동시에도 번호 꼬임 완벽 방지
             leader_indices = [i for i, role in enumerate(edited_df['직급']) if role in leader_titles]
             
             start_vars = {}
@@ -452,12 +484,14 @@ def main_scheduler_app():
                         model.Add(work_vars[(p, d, t)] == sum(active_shifts))
 
             for d in range(num_days):
+                # 오픈/마감 인원 충족
                 open_sum = [start_vars[(p, d, 0, L)] for p in range(num_partners) for L in range(int(get_role_times(edited_df.iloc[p]['직급'])[2] * 2), int(get_role_times(edited_df.iloc[p]['직급'])[2] * 2) + 5) if (p, d, 0, L) in start_vars]
                 model.Add(sum(open_sum) == req_open)
                 
                 close_sum = [start_vars[(p, d, num_slots - L, L)] for p in range(num_partners) for L in range(int(get_role_times(edited_df.iloc[p]['직급'])[2] * 2), int(get_role_times(edited_df.iloc[p]['직급'])[2] * 2) + 5) if (p, d, num_slots - L, L) in start_vars]
                 model.Add(sum(close_sum) == req_close)
                 
+                # 상시 최소 인원 & 관리자 최소 1명 상주
                 for t in range(num_slots):
                     model.Add(sum(work_vars[(p, d, t)] for p in range(num_partners)) >= min_floor)
                     model.Add(sum(work_vars[(p, d, t)] for p in leader_indices) >= 1)
@@ -488,9 +522,42 @@ def main_scheduler_app():
                         t = last_mid_end_idx - L
                         if t > 0 and (p, d, t, L) in start_vars: ends_at_last_mid.append(start_vars[(p, d, t, L)])
                 if ends_at_last_mid: model.Add(sum(ends_at_last_mid) >= 1)
+                
+                # 🌟 [신규] 다중 피크 타임 강제 반영
+                for t, req_staff in peak_req.items():
+                    model.Add(sum(work_vars[(p, d, t)] for p in range(num_partners)) == req_staff)
+
+            # 🌟 [신규] 관리자 오/마감 공평 분배 로직 (격차 최소화 벌점)
+            leader_opens = []
+            leader_closes = []
+            if len(leader_indices) > 1:
+                for p in leader_indices:
+                    bs = int(get_role_times(edited_df.iloc[p]['직급'])[2] * 2)
+                    # 각 관리자의 총 오픈 횟수
+                    opens = sum(start_vars[(p, d, 0, L)] for d in range(num_days) for L in range(bs, bs+5) if (p, d, 0, L) in start_vars)
+                    l_open_var = model.NewIntVar(0, num_days, f'l_open_{p}')
+                    model.Add(l_open_var == opens)
+                    leader_opens.append(l_open_var)
                     
-                for t in peak_slots:
-                    model.Add(sum(work_vars[(p, d, t)] for p in range(num_partners)) == peak_staff)
+                    # 각 관리자의 총 마감 횟수
+                    closes = sum(start_vars[(p, d, num_slots - L, L)] for d in range(num_days) for L in range(bs, bs+5) if (p, d, num_slots - L, L) in start_vars)
+                    l_close_var = model.NewIntVar(0, num_days, f'l_close_{p}')
+                    model.Add(l_close_var == closes)
+                    leader_closes.append(l_close_var)
+
+                max_open = model.NewIntVar(0, num_days, 'max_open')
+                min_open = model.NewIntVar(0, num_days, 'min_open')
+                model.AddMaxEquality(max_open, leader_opens)
+                model.AddMinEquality(min_open, leader_opens)
+                
+                max_close = model.NewIntVar(0, num_days, 'max_close')
+                min_close = model.NewIntVar(0, num_days, 'min_close')
+                model.AddMaxEquality(max_close, leader_closes)
+                model.AddMinEquality(min_close, leader_closes)
+                
+                leader_fairness_penalty = (max_open - min_open) * 4000 + (max_close - min_close) * 4000
+            else:
+                leader_fairness_penalty = 0
 
             stagger_vars = []
             for d in range(num_days):
@@ -593,10 +660,13 @@ def main_scheduler_app():
                                 total_work_hours_vars.append(start_vars[(p, d, t, L)] * actual_work_h)
 
             total_used_wh = sum(total_work_hours_vars)
-            peak_coverage = sum(work_vars[(p, d, t)] for p in range(num_partners) for d in range(num_days) for t in peak_slots)
+            peak_coverage = sum(work_vars[(p, d, t)] for p in range(num_partners) for d in range(num_days) for t in peak_slots_all)
             
+            # 🌟 [신규] 리더 공평성 벌점 추가
             model.Minimize(
-                sum(undertimes) * 100000 + sum(overlap_vars) * 500 + total_used_wh * 10 - peak_coverage * 80 + sum(ext_vars) * 20 + sum(stagger_vars) * 150 + sum(mao_vars) * 50000
+                sum(undertimes) * 100000 + sum(overlap_vars) * 500 + total_used_wh * 10 
+                - peak_coverage * 80 + sum(ext_vars) * 20 + sum(stagger_vars) * 150 
+                + sum(mao_vars) * 50000 + leader_fairness_penalty
             )
                     
             solver = cp_model.CpSolver()
@@ -607,7 +677,7 @@ def main_scheduler_app():
                 used_wh_final = solver.Value(total_used_wh) / 10.0
                 saved_wh = round(target_wh - used_wh_final, 1)
                 
-                st.success(f"🎉 스케줄 생성 완료! 매일 흔들림 없는 완벽한 스케줄 루틴이 적용되었습니다.")
+                st.success(f"🎉 스케줄 생성 완료! (IPLH: {target_iplh} 기준 최적화 적용)")
                 
                 mao_warnings = []
                 for track in mao_tracking:
@@ -623,8 +693,8 @@ def main_scheduler_app():
                 col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
                 col_kpi1.metric("💰 목표 총 워킹(WH)", f"{target_wh} h")
                 col_kpi2.metric("실제 배정 워킹(WH)", f"{used_wh_final} h")
-                if saved_wh >= 0: col_kpi3.metric("📈 세이브된 워킹 (이익공헌률 UP)", f"+{saved_wh} h", "Success")
-                else: col_kpi3.metric("📉 오버된 워킹 (이익공헌률 DOWN)", f"{saved_wh} h", "-")
+                if saved_wh >= 0: col_kpi3.metric("📈 세이브된 워킹 (이익공헌 UP)", f"+{saved_wh} h", "Success")
+                else: col_kpi3.metric("📉 오버된 워킹 (이익공헌 DOWN)", f"{saved_wh} h", "-")
                 st.write("---")
 
                 excel_sheets = {}
@@ -666,7 +736,7 @@ def main_scheduler_app():
 
                 for d in range(num_days):
                     day_str = (start_date + datetime.timedelta(days=d)).strftime("%Y-%m-%d")
-                    st.subheader(f"📅 {day_str} 타임라인 (루틴 및 시차 출퇴근 적용)")
+                    st.subheader(f"📅 {day_str} 타임라인 (다중 피크 및 공평 분배 적용)")
                     day_rows = [] 
                     
                     for p in range(num_partners):
